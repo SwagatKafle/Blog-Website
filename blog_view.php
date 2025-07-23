@@ -131,6 +131,107 @@ $view_stmt = mysqli_prepare($conn, $update_views);
 mysqli_stmt_bind_param($view_stmt, "i", $post_id);
 mysqli_stmt_execute($view_stmt);
 
+
+$user_liked = false;
+$total_likes = 0;
+
+if (isset($_SESSION['user_id'])) {
+    // Check if current user has liked this post
+    $like_check = "SELECT id FROM blog_likes WHERE post_id = ? AND user_id = ?";
+    $like_stmt = mysqli_prepare($conn, $like_check);
+    mysqli_stmt_bind_param($like_stmt, "ii", $post_id, $_SESSION['user_id']);
+    mysqli_stmt_execute($like_stmt);
+    $like_result = mysqli_stmt_get_result($like_stmt);
+    $user_liked = mysqli_num_rows($like_result) > 0;
+}
+
+// Get total likes for this post
+$total_likes_query = "SELECT COUNT(*) as total FROM blog_likes WHERE post_id = ?";
+$total_likes_stmt = mysqli_prepare($conn, $total_likes_query);
+mysqli_stmt_bind_param($total_likes_stmt, "i", $post_id);
+mysqli_stmt_execute($total_likes_stmt);
+$total_likes_result = mysqli_stmt_get_result($total_likes_stmt);
+$total_likes_row = mysqli_fetch_assoc($total_likes_result);
+$total_likes = $total_likes_row['total'];
+
+// =============================================================================
+// 2. ADD THIS AJAX HANDLER AT THE TOP OF THE FILE (after include 'config.php';)
+// =============================================================================
+
+// Handle AJAX like/unlike requests
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'toggle_like') {
+    header('Content-Type: application/json');
+    
+    if (!isset($_SESSION['user_id'])) {
+        echo json_encode(['success' => false, 'message' => 'Please log in to like posts']);
+        exit;
+    }
+    
+    $post_id = isset($_POST['post_id']) ? (int)$_POST['post_id'] : 0;
+    $user_id = $_SESSION['user_id'];
+    
+    if ($post_id <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Invalid post ID']);
+        exit;
+    }
+    
+    // Check if user already liked this post
+    $check_query = "SELECT id FROM blog_likes WHERE post_id = ? AND user_id = ?";
+    $check_stmt = mysqli_prepare($conn, $check_query);
+    mysqli_stmt_bind_param($check_stmt, "ii", $post_id, $user_id);
+    mysqli_stmt_execute($check_stmt);
+    $check_result = mysqli_stmt_get_result($check_stmt);
+    
+    if (mysqli_num_rows($check_result) > 0) {
+        // User has liked, so unlike
+        $unlike_query = "DELETE FROM blog_likes WHERE post_id = ? AND user_id = ?";
+        $unlike_stmt = mysqli_prepare($conn, $unlike_query);
+        mysqli_stmt_bind_param($unlike_stmt, "ii", $post_id, $user_id);
+        
+        if (mysqli_stmt_execute($unlike_stmt)) {
+            // Get new total
+            $total_query = "SELECT COUNT(*) as total FROM blog_likes WHERE post_id = ?";
+            $total_stmt = mysqli_prepare($conn, $total_query);
+            mysqli_stmt_bind_param($total_stmt, "i", $post_id);
+            mysqli_stmt_execute($total_stmt);
+            $total_result = mysqli_stmt_get_result($total_stmt);
+            $total_row = mysqli_fetch_assoc($total_result);
+            
+            echo json_encode([
+                'success' => true, 
+                'liked' => false, 
+                'total_likes' => $total_row['total']
+            ]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Error removing like']);
+        }
+    } else {
+        // User hasn't liked, so like
+        $like_query = "INSERT INTO blog_likes (post_id, user_id) VALUES (?, ?)";
+        $like_stmt = mysqli_prepare($conn, $like_query);
+        mysqli_stmt_bind_param($like_stmt, "ii", $post_id, $user_id);
+        
+        if (mysqli_stmt_execute($like_stmt)) {
+            // Get new total
+            $total_query = "SELECT COUNT(*) as total FROM blog_likes WHERE post_id = ?";
+            $total_stmt = mysqli_prepare($conn, $total_query);
+            mysqli_stmt_bind_param($total_stmt, "i", $post_id);
+            mysqli_stmt_execute($total_stmt);
+            $total_result = mysqli_stmt_get_result($total_stmt);
+            $total_row = mysqli_fetch_assoc($total_result);
+            
+            echo json_encode([
+                'success' => true, 
+                'liked' => true, 
+                'total_likes' => $total_row['total']
+            ]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Error adding like']);
+        }
+    }
+    exit;
+}
+
 ?>
 
 <!DOCTYPE html>
@@ -659,6 +760,20 @@ mysqli_stmt_execute($view_stmt);
                 font-size: 1.5rem;
             }
         }
+
+        .like-btn.liked {
+    background: linear-gradient(135deg, #e53e3e, #ff6b6b) !important;
+}
+
+.like-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.stat-item.likes-stat {
+    color: #e53e3e;
+    font-weight: 600;
+}
     </style>
 </head>
 <body>
@@ -704,6 +819,10 @@ mysqli_stmt_execute($view_stmt);
                                 <span>⏱️</span>
                                 <span><?php echo $readingTime; ?> min read</span>
                             </div>
+                            <div class="stat-item">
+        <span>❤️</span>
+        <span id="likesCount"><?php echo number_format($total_likes); ?> likes</span>
+    </div>
                         </div>
                     </div>
 
@@ -786,11 +905,18 @@ mysqli_stmt_execute($view_stmt);
                     </div>
                     
                     <div class="like-section">
-                        <button class="like-btn" onclick="toggleLike()">
-                            <span id="likeIcon">❤️</span>
-                            <span id="likeText">Like this post</span>
-                        </button>
-                    </div>
+    <?php if (isset($_SESSION['user_id'])): ?>
+        <button class="like-btn <?php echo $user_liked ? 'liked' : ''; ?>" onclick="toggleLike()" id="likeBtn">
+            <span id="likeIcon"><?php echo $user_liked ? '💖' : '❤️'; ?></span>
+            <span id="likeText"><?php echo $user_liked ? 'You liked this!' : 'Like this post'; ?></span>
+        </button>
+    <?php else: ?>
+        <a href="login.php" class="like-btn">
+            <span>❤️</span>
+            <span>Login to like</span>
+        </a>
+    <?php endif; ?>
+</div>
                 </div>
             </footer>
         </article>
@@ -835,23 +961,64 @@ mysqli_stmt_execute($view_stmt);
 
         // Like functionality
         let isLiked = false;
-        function toggleLike() {
-            const likeIcon = document.getElementById('likeIcon');
-            const likeText = document.getElementById('likeText');
-            const likeBtn = document.querySelector('.like-btn');
-            
-            if (isLiked) {
-                likeIcon.textContent = '❤️';
-                likeText.textContent = 'Like this post';
-                likeBtn.style.background = 'linear-gradient(135deg, #667eea, #764ba2)';
-                isLiked = false;
-            } else {
+function toggleLike() {
+    const likeBtn = document.getElementById('likeBtn');
+    const likeIcon = document.getElementById('likeIcon');
+    const likeText = document.getElementById('likeText');
+    const likesCount = document.getElementById('likesCount');
+    
+    // Disable button during request
+    likeBtn.disabled = true;
+    
+    // Send AJAX request
+    fetch(window.location.href, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'action=toggle_like&post_id=<?php echo $post_id; ?>'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            if (data.liked) {
                 likeIcon.textContent = '💖';
                 likeText.textContent = 'You liked this!';
-                likeBtn.style.background = 'linear-gradient(135deg, #e53e3e, #ff6b6b)';
-                isLiked = true;
+                likeBtn.classList.add('liked');
+            } else {
+                likeIcon.textContent = '❤️';
+                likeText.textContent = 'Like this post';
+                likeBtn.classList.remove('liked');
             }
+            
+            // Update likes count
+            likesCount.textContent = data.total_likes.toLocaleString() + ' likes';
+        } else {
+            alert(data.message || 'Error occurred');
         }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Network error occurred');
+    })
+    .finally(() => {
+        // Re-enable button
+        likeBtn.disabled = false;
+    });
+}
+
+// Add smooth animation for like button
+document.addEventListener('DOMContentLoaded', function() {
+    const likeBtn = document.getElementById('likeBtn');
+    if (likeBtn) {
+        likeBtn.addEventListener('click', function() {
+            this.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                this.style.transform = 'scale(1)';
+            }, 150);
+        });
+    }
+});
 
         // Smooth scroll and animations
         document.addEventListener('DOMContentLoaded', function() {
