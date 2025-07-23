@@ -1,6 +1,5 @@
 <?php
-// admin_users.php - User Management Page (Admin Only)
-session_start();
+
 include 'config.php';
 
 // Check if user is logged in and has admin role
@@ -495,7 +494,6 @@ $stats = mysqli_fetch_assoc($stats_result);
         <div class="header-content">
             <h1><i class="fas fa-users-cog"></i> User Management</h1>
             <div class="user-info">
-                <span><i class="fas fa-user-shield"></i> <?php echo htmlspecialchars($_SESSION['name']); ?></span>
                 <a href="dashboard.php" class="btn btn-secondary btn-sm">
                     <i class="fas fa-arrow-left"></i> Back to Dashboard
                 </a>
