@@ -383,16 +383,15 @@ include 'includes/header.php';
         <div class="page-header">
             <h1>📚 Blog Posts</h1>
             <p>Discover insights, stories, and knowledge from our community</p>
-        </div>
-
-        <!-- if logged in, show option to create blog -->
+                    <!-- if logged in, show option to create blog -->
         <?php if (isset($_SESSION['user_id'])): ?>
-            <div class="text-center mb-4">
-                <a href="blog_create.php" class="btn btn-primary">
+            <p style="margin-top: 3rem;">
+                <a href="blog_create.php" class="btn btn-secondary">
                     📝 Create New Post
                 </a>
-            </div>
+            </p>
         <?php endif; ?>
+        </div>
 
         <div class="filters-container">
             <div class="filters-grid">
@@ -458,6 +457,8 @@ include 'includes/header.php';
                             <div class="post-header">
                                 <h2 class="post-title">
                                     <a href="blog_view.php?id=<?php echo $post['id']; ?>">
+                                        <!-- image -->
+                                        <img src="<?php echo $post['image_path']; ?>" alt="<?php echo htmlspecialchars($post['title']); ?>" style="width: 100%; height: auto; border-radius: 15px; margin-bottom: 1rem;">
                                         <?php echo htmlspecialchars($post['title']); ?>
                                     </a>
                                 </h2>

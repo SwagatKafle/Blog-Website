@@ -1,5 +1,6 @@
+
 <?php
-// blog_edit.php - Enhanced blog post editing with categories and tags
+// blog_edit.php - Enhanced blog post editing with rich text editor and better formatting
 include 'config.php';
 
 // Check if user is logged in
@@ -68,9 +69,32 @@ while ($row = mysqli_fetch_assoc($current_tags_result)) {
     $current_tags[] = $row['name'];
 }
 
+// Function to format content for storage (preserve line breaks and basic formatting)
+function formatContentForStorage($content) {
+    // Convert HTML line breaks to actual line breaks for storage
+    $content = str_replace(['<br>', '<br/>', '<br />'], "\n", $content);
+    // Remove any remaining HTML tags for security (you can customize this based on your needs)
+    $content = strip_tags($content, '<p><br><strong><em><u><ul><ol><li><h1><h2><h3><h4><h5><h6><blockquote><a><img>');
+    return trim($content);
+}
+
+// Function to format content for display (convert line breaks to HTML)
+function formatContentForDisplay($content) {
+    // Convert line breaks to HTML paragraphs
+    $content = nl2br(htmlspecialchars($content));
+    // Convert double line breaks to paragraph breaks
+    $content = preg_replace('/\n\s*\n/', '</p><p>', $content);
+    // Wrap content in paragraph tags if it doesn't already have them
+    if (!empty($content) && strpos($content, '<p>') === false) {
+        $content = '<p>' . $content . '</p>';
+    }
+    return $content;
+}
+
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $title = mysqli_real_escape_string($conn, trim($_POST['title']));
-    $content = mysqli_real_escape_string($conn, trim($_POST['content']));
+    $content = formatContentForStorage($_POST['content']);
+    $content = mysqli_real_escape_string($conn, $content);
     $status = mysqli_real_escape_string($conn, $_POST['status']);
     $user_id = $_SESSION['user_id'];
     $selected_categories = isset($_POST['categories']) ? $_POST['categories'] : [];
@@ -84,9 +108,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $errors[] = 'Title must be less than 255 characters';
     }
     
-    if (empty($content)) {
+    if (empty(trim(strip_tags($_POST['content'])))) {
         $errors[] = 'Content is required';
-    } elseif (strlen($content) < 50) {
+    } elseif (strlen(trim(strip_tags($_POST['content']))) < 50) {
         $errors[] = 'Content must be at least 50 characters long';
     }
     
@@ -267,7 +291,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 include 'includes/header.php';
 ?>
 
-<div class="form-container" style="max-width: 900px;">
+<div class="form-container" style="max-width: 1000px;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem;">
         <h2 style="margin: 0; color: #2d3748;">✏️ Edit Blog Post</h2>
         <div style="display: flex; gap: 0.5rem;">
@@ -375,15 +399,53 @@ include 'includes/header.php';
         
         <div class="form-group" style="margin-bottom: 1.5rem;">
             <label for="content" style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #2d3748;">📄 Post Content *</label>
+            
+            <!-- Rich Text Editor Toolbar -->
+            <div id="editor-toolbar" style="display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem; border: 2px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; border-top-left-radius: 8px; border-top-right-radius: 8px; background: #f8f9fa;">
+                <button type="button" onclick="formatText('bold')" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer; font-weight: bold;">B</button>
+                <button type="button" onclick="formatText('italic')" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer; font-style: italic;">I</button>
+                <button type="button" onclick="formatText('underline')" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer; text-decoration: underline;">U</button>
+                <div style="width: 1px; height: 2rem; background: #cbd5e0; margin: 0 0.25rem;"></div>
+                <button type="button" onclick="addHeading()" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer;">H1</button>
+                <button type="button" onclick="addList('ul')" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer;">• List</button>
+                <button type="button" onclick="addList('ol')" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer;">1. List</button>
+                <div style="width: 1px; height: 2rem; background: #cbd5e0; margin: 0 0.25rem;"></div>
+                <button type="button" onclick="addLink()" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer;">🔗 Link</button>
+                <button type="button" onclick="addQuote()" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer;">" Quote</button>
+            </div>
+            
             <textarea id="content" 
                       name="content" 
-                      rows="15" 
-                      placeholder="Write your blog post content here... (minimum 50 characters)"
-                      style="width: 100%; padding: 1rem; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 1rem; font-family: inherit; resize: vertical; line-height: 1.6;"
+                      rows="20" 
+                      placeholder="Write your blog post content here... 
+
+Use double line breaks to create new paragraphs.
+
+You can use the formatting buttons above or write in Markdown-style:
+**bold text** or *italic text*
+# Heading 1
+## Heading 2
+- Bullet point
+1. Numbered list
+
+Minimum 50 characters required."
+                      style="width: 100%; padding: 1rem; border: 2px solid #e2e8f0; border-top: none; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; font-size: 1rem; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; resize: vertical; line-height: 1.6;"
                       required><?php echo isset($_POST['content']) ? htmlspecialchars($_POST['content']) : htmlspecialchars($post['content']); ?></textarea>
-            <div style="display: flex; justify-content: between; align-items: center; margin-top: 0.5rem;">
-                <small style="color: #718096;">Minimum 50 characters required</small>
-                <small id="charCount" style="color: #718096; margin-left: auto;"><?php echo strlen($post['content']); ?> characters</small>
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                <small style="color: #718096;">
+                    💡 <strong>Formatting Tips:</strong> Use double line breaks for paragraphs, **bold**, *italic*, # for headings
+                </small>
+                <small id="charCount" style="color: #718096;"><?php echo strlen($post['content']); ?> characters</small>
+            </div>
+            
+            <!-- Live Preview -->
+            <div style="margin-top: 1rem;">
+                <button type="button" onclick="togglePreview()" id="previewBtn" style="padding: 0.5rem 1rem; border: 1px solid #cbd5e0; border-radius: 4px; background: #f8f9fa; cursor: pointer;">👁️ Show Preview</button>
+                <div id="contentPreview" style="display: none; margin-top: 1rem; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 8px; background: #f9f9f9; min-height: 100px;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #4a5568;">Preview:</h4>
+                    <div id="previewContent" style="line-height: 1.6; color: #2d3748;"></div>
+                </div>
             </div>
         </div>
         
@@ -429,6 +491,10 @@ include 'includes/header.php';
 </div>
 
 <script>
+// Image preview functionality
+// Enhanced editor functionality
+let previewVisible = false;
+
 // Image preview functionality
 function previewImage(input) {
     const preview = document.getElementById('preview');

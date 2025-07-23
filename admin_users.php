@@ -610,7 +610,7 @@ $stats = mysqli_fetch_assoc($stats_result);
                                                 onclick="resetPassword(<?php echo $user['id']; ?>, '<?php echo htmlspecialchars($user['name']); ?>')">
                                             <i class="fas fa-key"></i>
                                         </button>
-                                        <?php if ($user['id'] != $_SESSION['user_id']): ?>
+                                        <?php if ($_SESSION['role'] === 'admin'): ?>
                                             <button class="btn btn-danger btn-sm" 
                                                     onclick="deleteUser(<?php echo $user['id']; ?>, '<?php echo htmlspecialchars($user['name']); ?>')">
                                                 <i class="fas fa-trash"></i>

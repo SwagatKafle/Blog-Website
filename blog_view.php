@@ -1,5 +1,5 @@
 <?php
-// blog_view.php - Enhanced professional blog view page
+// blog_view.php - Enhanced professional blog view page with text analysis
 include 'config.php';
 session_start();
 
@@ -18,10 +18,14 @@ $query = "SELECT bp.*, u.name AS author, u.email AS author_email,
           JOIN users u ON bp.user_id = u.id
           LEFT JOIN post_categories pc ON bp.id = pc.post_id
           LEFT JOIN blog_categories bc ON pc.category_id = bc.id
-          WHERE bp.id = $post_id
+          WHERE bp.id = ? AND bp.status = 'published'
           GROUP BY bp.id";
 
-$result = mysqli_query($conn, $query);
+$stmt = mysqli_prepare($conn, $query);
+mysqli_stmt_bind_param($stmt, "i", $post_id);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+
 if (!$result || mysqli_num_rows($result) == 0) {
     header('Location: blog_list.php');
     exit;
@@ -30,26 +34,104 @@ if (!$result || mysqli_num_rows($result) == 0) {
 $post = mysqli_fetch_assoc($result);
 $page_title = htmlspecialchars($post['title']) . ' - Student Portal';
 
-// Fetch comments for this post
-$comments_query = "SELECT c.*, u.name AS commenter_name
-                   FROM blog_comments c
-                   JOIN users u ON c.user_id = u.id
-                   WHERE c.post_id = $post_id
-                   ORDER BY c.created_at DESC";
-$comments_result = mysqli_query($conn, $comments_query);
-
 // Fetch related posts (same categories, excluding current post)
 $related_query = "SELECT DISTINCT bp.id, bp.title, bp.created_at, u.name AS author
                   FROM blog_posts bp
                   JOIN users u ON bp.user_id = u.id
                   JOIN post_categories pc ON bp.id = pc.post_id
                   JOIN post_categories pc2 ON pc.category_id = pc2.category_id
-                  WHERE pc2.post_id = $post_id AND bp.id != $post_id
+                  WHERE pc2.post_id = ? AND bp.id != ? AND bp.status = 'published'
                   ORDER BY bp.created_at DESC
                   LIMIT 3";
-$related_result = mysqli_query($conn, $related_query);
+$related_stmt = mysqli_prepare($conn, $related_query);
+mysqli_stmt_bind_param($related_stmt, "ii", $post_id, $post_id);
+mysqli_stmt_execute($related_stmt);
+$related_result = mysqli_stmt_get_result($related_stmt);
 
-// include 'includes/header.php';
+// Enhanced text analysis functions
+function countVowels($text) {
+    $cleanText = strip_tags($text);
+    $cleanText = html_entity_decode($cleanText, ENT_QUOTES, 'UTF-8');
+    return preg_match_all('/[aeiouAEIOU]/u', $cleanText);
+}
+
+function countAlphabets($text) {
+    $cleanText = strip_tags($text);
+    $cleanText = html_entity_decode($cleanText, ENT_QUOTES, 'UTF-8');
+    return preg_match_all('/[a-zA-Z]/u', $cleanText);
+}
+
+function countWords($text) {
+    $cleanText = strip_tags($text);
+    $cleanText = html_entity_decode($cleanText, ENT_QUOTES, 'UTF-8');
+    $cleanText = preg_replace('/\s+/', ' ', trim($cleanText));
+    return str_word_count($cleanText);
+}
+
+function countSentences($text) {
+    $cleanText = strip_tags($text);
+    $cleanText = html_entity_decode($cleanText, ENT_QUOTES, 'UTF-8');
+    // Count sentences ending with ., !, or ?
+    return preg_match_all('/[.!?]+(?=\s|$)/u', $cleanText);
+}
+
+function countParagraphs($text) {
+    // First, handle HTML content properly
+    $cleanText = $text;
+    
+    // Replace HTML paragraph tags and line breaks with double newlines
+    $cleanText = preg_replace('/<\/p>\s*<p[^>]*>/i', "\n\n", $cleanText);
+    $cleanText = preg_replace('/<p[^>]*>/i', '', $cleanText);
+    $cleanText = preg_replace('/<\/p>/i', "\n\n", $cleanText);
+    $cleanText = preg_replace('/<br\s*\/?>/i', "\n", $cleanText);
+    $cleanText = preg_replace('/<div[^>]*>/i', "\n", $cleanText);
+    $cleanText = preg_replace('/<\/div>/i', "\n", $cleanText);
+    
+    // Remove all other HTML tags
+    $cleanText = strip_tags($cleanText);
+    $cleanText = html_entity_decode($cleanText, ENT_QUOTES, 'UTF-8');
+    
+    // Split by multiple newlines or empty lines
+    $paragraphs = preg_split('/\n\s*\n+/', trim($cleanText));
+    
+    // Filter out empty paragraphs and paragraphs with only whitespace
+    $paragraphs = array_filter($paragraphs, function($p) {
+        return trim($p) !== '';
+    });
+    
+    return count($paragraphs);
+}
+
+function getReadabilityScore($text) {
+    $words = countWords($text);
+    $sentences = countSentences($text);
+    
+    if ($sentences == 0) return 0;
+    
+    $avgWordsPerSentence = $words / $sentences;
+    
+    // Simple readability scoring
+    if ($avgWordsPerSentence <= 12) return "Easy";
+    elseif ($avgWordsPerSentence <= 17) return "Medium";
+    else return "Difficult";
+}
+
+// Calculate text statistics
+$content = $post['content'];
+$vowelCount = countVowels($content);
+$alphabetCount = countAlphabets($content);
+$wordCount = countWords($content);
+$sentenceCount = countSentences($content);
+$paragraphCount = countParagraphs($content);
+$readingTime = ceil($wordCount / 250); // Average reading speed
+$readabilityScore = getReadabilityScore($content);
+
+// Update post views (optional)
+$update_views = "UPDATE blog_posts SET views = views + 1 WHERE id = ?";
+$view_stmt = mysqli_prepare($conn, $update_views);
+mysqli_stmt_bind_param($view_stmt, "i", $post_id);
+mysqli_stmt_execute($view_stmt);
+
 ?>
 
 <!DOCTYPE html>
@@ -58,6 +140,8 @@ $related_result = mysqli_query($conn, $related_query);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $page_title; ?></title>
+    <meta name="description" content="<?php echo htmlspecialchars(substr(strip_tags($post['content']), 0, 160)); ?>">
+    <meta name="author" content="<?php echo htmlspecialchars($post['author']); ?>">
     <style>
         * {
             margin: 0;
@@ -138,6 +222,29 @@ $related_result = mysqli_query($conn, $related_query);
             line-height: 1.2;
         }
 
+        .edit-section {
+            margin-bottom: 1.5rem;
+        }
+
+        .edit-button {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .edit-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 107, 107, 0.3);
+        }
+
         .article-meta {
             display: flex;
             align-items: center;
@@ -213,6 +320,17 @@ $related_result = mysqli_query($conn, $related_query);
             line-height: 1.8;
         }
 
+        /* Enhanced content styling to properly show paragraphs */
+        .article-content p {
+            margin-bottom: 1.5rem;
+            color: #4a5568;
+            text-align: justify;
+        }
+
+        .article-content p:last-child {
+            margin-bottom: 0;
+        }
+
         .article-content h1,
         .article-content h2,
         .article-content h3,
@@ -232,11 +350,6 @@ $related_result = mysqli_query($conn, $related_query);
 
         .article-content h3 {
             font-size: 1.4rem;
-        }
-
-        .article-content p {
-            margin-bottom: 1.5rem;
-            color: #4a5568;
         }
 
         .article-content ul,
@@ -280,6 +393,92 @@ $related_result = mysqli_query($conn, $related_query);
             background: none;
             color: inherit;
             padding: 0;
+        }
+
+        .text-analysis {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+            padding: 2.5rem;
+            margin: 2rem 0;
+            border-radius: 15px;
+            border: 1px solid rgba(102, 126, 234, 0.2);
+        }
+
+        .analysis-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .analysis-header h3 {
+            font-size: 1.5rem;
+            color: #2d3748;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .analysis-header p {
+            color: #666;
+            font-size: 0.95rem;
+        }
+
+        .analysis-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .analysis-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+
+        .analysis-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+        }
+
+        .analysis-icon {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+
+        .analysis-number {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+
+        .analysis-label {
+            color: #4a5568;
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .readability-indicator {
+            background: white;
+            padding: 1rem;
+            border-radius: 10px;
+            text-align: center;
+            margin-top: 1rem;
+            border: 2px solid #667eea;
+        }
+
+        .readability-score {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #667eea;
         }
 
         .article-footer {
@@ -347,107 +546,6 @@ $related_result = mysqli_query($conn, $related_query);
             box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
         }
 
-        .comments-section {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            padding: 3rem;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            margin-bottom: 3rem;
-        }
-
-        .comments-header {
-            margin-bottom: 2rem;
-            padding-bottom: 1rem;
-            border-bottom: 2px solid #f0f0f0;
-        }
-
-        .comments-header h3 {
-            font-size: 1.5rem;
-            color: #2d3748;
-            margin-bottom: 0.5rem;
-        }
-
-        .comment-form {
-            background: rgba(102, 126, 234, 0.05);
-            padding: 2rem;
-            border-radius: 15px;
-            margin-bottom: 2rem;
-        }
-
-        .comment-form textarea {
-            width: 100%;
-            padding: 1rem;
-            border: 2px solid #e2e8f0;
-            border-radius: 10px;
-            font-family: inherit;
-            font-size: 1rem;
-            resize: vertical;
-            min-height: 120px;
-            margin-bottom: 1rem;
-        }
-
-        .comment-form textarea:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .comment-submit {
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white;
-            border: none;
-            padding: 0.75rem 2rem;
-            border-radius: 25px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .comment-submit:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
-        }
-
-        .comment-item {
-            background: white;
-            padding: 1.5rem;
-            border-radius: 15px;
-            margin-bottom: 1rem;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-            border: 1px solid rgba(0, 0, 0, 0.05);
-        }
-
-        .comment-header {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            margin-bottom: 1rem;
-        }
-
-        .commenter-avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 600;
-        }
-
-        .comment-meta h5 {
-            color: #2d3748;
-            margin-bottom: 0.25rem;
-        }
-
-        .comment-meta p {
-            color: #666;
-            font-size: 0.9rem;
-        }
-
         .related-posts {
             background: rgba(255, 255, 255, 0.95);
             border-radius: 20px;
@@ -503,7 +601,16 @@ $related_result = mysqli_query($conn, $related_query);
             font-size: 0.9rem;
         }
 
-            @media (max-width: 768px) {
+        .error-message {
+            background: #fee;
+            color: #c53030;
+            padding: 1rem;
+            border-radius: 10px;
+            margin: 1rem 0;
+            border: 1px solid #feb2b2;
+        }
+
+        @media (max-width: 768px) {
             .container {
                 padding: 1rem;
             }
@@ -515,8 +622,11 @@ $related_result = mysqli_query($conn, $related_query);
             .header-content,
             .article-content,
             .article-footer,
-            .comments-section,
             .related-posts {
+                padding: 2rem;
+            }
+            
+            .text-analysis {
                 padding: 2rem;
             }
             
@@ -535,6 +645,19 @@ $related_result = mysqli_query($conn, $related_query);
             
             .related-grid {
                 grid-template-columns: 1fr;
+            }
+
+            .analysis-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 1rem;
+            }
+
+            .analysis-card {
+                padding: 1rem;
+            }
+
+            .analysis-number {
+                font-size: 1.5rem;
             }
         }
     </style>
@@ -555,7 +678,13 @@ $related_result = mysqli_query($conn, $related_query);
                 
                 <div class="header-content">
                     <h1 class="article-title"><?php echo htmlspecialchars($post['title']); ?></h1>
-                    
+
+                    <?php if (isset($_SESSION['user_id']) && $_SESSION['user_id'] == $post['user_id']): ?>
+                    <div class="edit-section">
+                        <a href="blog_edit.php?id=<?php echo $post['id']; ?>" class="edit-button">✏️ Edit Post</a>
+                    </div>
+                    <?php endif; ?>
+
                     <div class="article-meta">
                         <div class="author-section">
                             <div class="author-avatar">
@@ -570,15 +699,11 @@ $related_result = mysqli_query($conn, $related_query);
                         <div class="post-stats">
                             <div class="stat-item">
                                 <span>👀</span>
-                                <span><?php echo rand(50, 500); ?> views</span>
-                            </div>
-                            <div class="stat-item">
-                                <span>💬</span>
-                                <span><?php echo mysqli_num_rows($comments_result); ?> comments</span>
+                                <span><?php echo isset($post['views']) ? number_format($post['views']) : rand(50, 500); ?> views</span>
                             </div>
                             <div class="stat-item">
                                 <span>⏱️</span>
-                                <span><?php echo ceil(str_word_count(strip_tags($post['content'])) / 200); ?> min read</span>
+                                <span><?php echo $readingTime; ?> min read</span>
                             </div>
                         </div>
                     </div>
@@ -600,20 +725,63 @@ $related_result = mysqli_query($conn, $related_query);
                 </div>
             </header>
 
-            <div class="article-content">
-                <?php echo $post['content']; ?>
+            <div class="article-content" style="margin-top: 1.5rem;">
+               <?php echo htmlspecialchars($post['content']); ?>
+            </div>
+
+            <!-- Enhanced Text Analysis Section -->
+            <div class="text-analysis">
+                <div class="analysis-header">
+                    <h3><span>📊</span> Content Analysis</h3>
+                    <p>Detailed breakdown of this blog post's textual content</p>
+                </div>
+                <div class="analysis-grid">
+                    <div class="analysis-card">
+                        <span class="analysis-icon">🔤</span>
+                        <span class="analysis-number"><?php echo number_format($wordCount); ?></span>
+                        <span class="analysis-label">Words</span>
+                    </div>
+                    <div class="analysis-card">
+                        <span class="analysis-icon">🅰️</span>
+                        <span class="analysis-number"><?php echo number_format($alphabetCount); ?></span>
+                        <span class="analysis-label">Letters</span>
+                    </div>
+                    <div class="analysis-card">
+                        <span class="analysis-icon">🎵</span>
+                        <span class="analysis-number"><?php echo number_format($vowelCount); ?></span>
+                        <span class="analysis-label">Vowels</span>
+                    </div>
+                    <div class="analysis-card">
+                        <span class="analysis-icon">📝</span>
+                        <span class="analysis-number"><?php echo number_format($sentenceCount); ?></span>
+                        <span class="analysis-label">Sentences</span>
+                    </div>
+                    <div class="analysis-card">
+                        <span class="analysis-icon">📄</span>
+                        <span class="analysis-number"><?php echo number_format($paragraphCount); ?></span>
+                        <span class="analysis-label">Paragraphs</span>
+                    </div>
+                    <div class="analysis-card">
+                        <span class="analysis-icon">⏲️</span>
+                        <span class="analysis-number"><?php echo $readingTime; ?></span>
+                        <span class="analysis-label">Min Read</span>
+                    </div>
+                </div>
+                <div class="readability-indicator">
+                    <div class="readability-score">📚 Readability: <?php echo $readabilityScore; ?></div>
+                </div>
             </div>
 
             <footer class="article-footer">
                 <div class="share-section">
                     <div class="share-buttons">
-                        <a href="#" class="share-btn facebook" onclick="shareOnFacebook()">
+                        <a href="javascript:void(0)" class="share-btn facebook" onclick="shareOnFacebook()">
                             <span>📘</span> Share on Facebook
                         </a>
-                        <a href="#" class="share-btn twitter" onclick="shareOnTwitter()">
+                        <a href="javascript:void(0)" class="share-btn twitter" onclick="shareOnTwitter()">
                             <span>🐦</span> Share on Twitter
                         </a>
-                        <a href="#" class="share-btn linkedin" onclick="shareOnLinkedIn()">
+                        <a href="javascript:void(0)" class="share-btn linkedin" onclick="shareOnLinkedIn()">
                             <span>💼</span> Share on LinkedIn
                         </a>
                     </div>
@@ -627,46 +795,6 @@ $related_result = mysqli_query($conn, $related_query);
                 </div>
             </footer>
         </article>
-
-        <section class="comments-section">
-            <div class="comments-header">
-                <h3>💬 Comments (<?php echo mysqli_num_rows($comments_result); ?>)</h3>
-                <p>Share your thoughts and join the discussion</p>
-            </div>
-
-            <form class="comment-form" method="POST" action="add_comment.php">
-                <input type="hidden" name="post_id" value="<?php echo $post_id; ?>">
-                <textarea name="comment" placeholder="Write your comment here..." required></textarea>
-                <button type="submit" class="comment-submit">Post Comment</button>
-            </form>
-
-            <div class="comments-list">
-                <?php if (mysqli_num_rows($comments_result) > 0): ?>
-                    <?php while ($comment = mysqli_fetch_assoc($comments_result)): ?>
-                        <div class="comment-item">
-                            <div class="comment-header">
-                                <div class="commenter-avatar">
-                                    <?php echo strtoupper(substr($comment['commenter_name'], 0, 1)); ?>
-                                </div>
-                                <div class="comment-meta">
-                                    <h5><?php echo htmlspecialchars($comment['commenter_name']); ?></h5>
-                                    <p><?php echo date('M j, Y \a\t g:i A', strtotime($comment['created_at'])); ?></p>
-                                </div>
-                            </div>
-                            <div class="comment-content">
-                                <p><?php echo nl2br(htmlspecialchars($comment['content'])); ?></p>
-                            </div>
-                        </div>
-                    <?php endwhile; ?>
-                <?php else: ?>
-                    <div class="no-comments">
-                        <p style="text-align: center; color: #666; padding: 2rem;">
-                            💭 No comments yet. Be the first to share your thoughts!
-                        </p>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </section>
 
         <?php if (mysqli_num_rows($related_result) > 0): ?>
             <section class="related-posts">
@@ -688,7 +816,6 @@ $related_result = mysqli_query($conn, $related_query);
     </div>
 
     <script>
-        // Share functions
         function shareOnFacebook() {
             const url = encodeURIComponent(window.location.href);
             const title = encodeURIComponent(document.title);
@@ -725,6 +852,77 @@ $related_result = mysqli_query($conn, $related_query);
                 likeBtn.style.background = 'linear-gradient(135deg, #e53e3e, #ff6b6b)';
                 isLiked = true;
             }
+        }
+
+        // Smooth scroll and animations
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add smooth animations
+            const elements = document.querySelectorAll('.article-container, .related-posts');
+            elements.forEach((element, index) => {
+                element.style.opacity = '0';
+                element.style.transform = 'translateY(30px)';
+                setTimeout(() => {
+                    element.style.transition = 'all 0.6s ease';
+                    element.style.opacity = '1';
+                    element.style.transform = 'translateY(0)';
+                }, index * 200);
+            });
+
+            // Animate analysis cards
+            const analysisCards = document.querySelectorAll('.analysis-card');
+            analysisCards.forEach((card, index) => {
+                card.style.opacity = '0';
+                card.style.transform = 'scale(0.8)';
+                setTimeout(() => {
+                    card.style.transition = 'all 0.5s ease';
+                    card.style.opacity = '1';
+                    card.style.transform = 'scale(1)';
+                }, 800 + (index * 100));
+            });
+
+            // Auto-expand images
+            const images = document.querySelectorAll('.article-content img');
+            images.forEach(img => {
+                img.style.maxWidth = '100%';
+                img.style.height = 'auto';
+                img.style.borderRadius = '10px';
+                img.style.boxShadow = '0 5px 15px rgba(0,0,0,0.1)';
+                img.style.margin = '1rem 0';
+            });
+        });
+
+        // Reading progress indicator
+        window.addEventListener('scroll', function() {
+            const article = document.querySelector('.article-content');
+            const articleTop = article.offsetTop;
+            const articleHeight = article.offsetHeight;
+            const windowHeight = window.innerHeight;
+            const scrollTop = window.pageYOffset;
+            
+            const progress = Math.min(Math.max((scrollTop - articleTop + windowHeight) / articleHeight, 0), 1);
+            
+            // Update analysis cards on scroll
+            if (progress > 0.5) {
+                const analysisSection = document.querySelector('.text-analysis');
+                if (analysisSection && !analysisSection.classList.contains('animated')) {
+                    analysisSection.classList.add('animated');
+                }
+            }
+        });
+
+        // Counter animation for analysis numbers
+        function animateCounter(element, start, end, duration) {
+            let startTimestamp = null;
+            const step = (timestamp) => {
+                if (!startTimestamp) startTimestamp = timestamp;
+                const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                const current = Math.floor(progress * (end - start) + start);
+                element.textContent = current.toLocaleString();
+                if (progress < 1) {
+                    window.requestAnimationFrame(step);
+                }
+            };
+            window.requestAnimationFrame(step);
         }
 
         // Smooth scroll for anchor links
