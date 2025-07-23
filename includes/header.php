@@ -24,6 +24,7 @@
                             <!-- if role is "admin" -->
                             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
                                 <li><a href="admin_users.php">Manage Users</a></li>
+                                <li><a href="admin_blogs.php">Manage Blogs</a></li>
                             <?php endif; ?>
                             <li><a href="logout.php">Logout</a></li>
                         <?php else: ?>
