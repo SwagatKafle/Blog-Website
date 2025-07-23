@@ -1,7 +1,6 @@
 <?php
 // blog_view.php - Enhanced professional blog view page with text analysis
 include 'config.php';
-session_start();
 
 // Get blog post ID
 $post_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;

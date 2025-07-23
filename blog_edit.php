@@ -400,20 +400,6 @@ include 'includes/header.php';
         <div class="form-group" style="margin-bottom: 1.5rem;">
             <label for="content" style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #2d3748;">📄 Post Content *</label>
             
-            <!-- Rich Text Editor Toolbar -->
-            <div id="editor-toolbar" style="display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem; border: 2px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; border-top-left-radius: 8px; border-top-right-radius: 8px; background: #f8f9fa;">
-                <button type="button" onclick="formatText('bold')" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer; font-weight: bold;">B</button>
-                <button type="button" onclick="formatText('italic')" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer; font-style: italic;">I</button>
-                <button type="button" onclick="formatText('underline')" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer; text-decoration: underline;">U</button>
-                <div style="width: 1px; height: 2rem; background: #cbd5e0; margin: 0 0.25rem;"></div>
-                <button type="button" onclick="addHeading()" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer;">H1</button>
-                <button type="button" onclick="addList('ul')" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer;">• List</button>
-                <button type="button" onclick="addList('ol')" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer;">1. List</button>
-                <div style="width: 1px; height: 2rem; background: #cbd5e0; margin: 0 0.25rem;"></div>
-                <button type="button" onclick="addLink()" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer;">🔗 Link</button>
-                <button type="button" onclick="addQuote()" style="padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; background: white; cursor: pointer;">" Quote</button>
-            </div>
-            
             <textarea id="content" 
                       name="content" 
                       rows="20" 
